@@ -1,0 +1,375 @@
+---
+title: "R Notebook"
+author: Aman Agarwal - A20414691
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 1
+---
+
+
+# Including necessary libraries
+```{r}
+library(textreuse)
+library(stringr)
+library(lsa)
+library(naniar)
+library(dplyr)
+library(DataCombine)
+library(tm)
+
+```
+
+# Problem 2.1
+```{r}
+movies <- read.csv("movies.csv", header = TRUE, sep = ',')
+ratings <- read.csv("ratings.csv", header = TRUE, sep = ',')
+unique_userId <- unique(ratings['userId'])
+
+for (userId in unique_userId$userId) {
+  movieIds_for_particular_user <- ratings[ratings$userId == userId, 'movieId']
+  movies_for_particular_user <- data.frame(movies[is.element(movies$movieId, movieIds_for_particular_user), 'title'])
+  write.table(movies_for_particular_user, row.names = FALSE, col.names = FALSE, quote = FALSE, paste('hw4.movies/user',userId,'.txt', sep = ''))
+}
+
+files <- list.files("hw4.movies", full.names = TRUE)
+corpus <- TextReuseCorpus(files, tokenizer = tokenize_ngrams, n = 5, keep_tokens = TRUE)
+
+```
+
+# Problem 2.1 (a)
+```{r}
+total_number_of_documents <- length(corpus)
+unique_corpus <- c()
+
+for (i in 1:total_number_of_documents) {
+  corpus_for_this_document <- corpus[[i]]$tokens
+  unique_corpus <- union(unique_corpus, corpus_for_this_document)
+}
+
+cat("Number of rows = ", length(unique_corpus), " and columns = ", total_number_of_documents, sep = "")
+
+```
+
+
+# Problem 2.1 (b) (i)
+```{r}
+user20_corpus <- corpus[["user20"]]
+cat("User20 has rated", str_count(user20_corpus$content, "\n") + 1, "movies")
+
+```
+
+# Problem 2.1 (b) (ii)
+```{r}
+cat("The first 5 shingles (tokens) for user20 are:\n")
+print(user20_corpus$tokens[1:5])
+
+```
+
+# Problem 2.1 (c)
+```{r}
+pairwise_candidates_res <- pairwise_candidates(pairwise_compare(corpus, jaccard_similarity))
+
+```
+
+# Problem 2.1 (c) (i)
+```{r}
+cat("Number of pairs with similarity score of atleast 0.60 is", nrow(pairwise_candidates_res[pairwise_candidates_res$score>=0.60, ]), "\n")
+
+```
+
+# Problem 2.1 (c) (ii)
+```{r}
+cat("Number of pairs with similarity score of atleast 0.50 is", nrow(pairwise_candidates_res[pairwise_candidates_res$score>=0.50, ]), "\n")
+
+```
+
+# Problem 2.1 (c) (iii)
+```{r}
+pairs_based_on_similarity_score <- pairwise_candidates_res[pairwise_candidates_res$score>=0.40, ]
+cat("Number of pairs with similarity score of atleast 0.40 is", nrow(pairs_based_on_similarity_score), "\n")
+
+```
+
+# Problem 2.1 (c) (iv)
+```{r}
+print(pairs_based_on_similarity_score)
+
+```
+
+# Problem 2.1 (d) (i)
+```{r}
+h <- 5
+b <- 5
+prob <- lsh_probability(h = h, b = b, s = 0.60)
+cat("Minimum number of minhash signatures =", h, "and number of LSH bands =", b)
+
+```
+
+# Problem 2.1 (d) (ii)
+```{r}
+minhash <- minhash_generator(n = h, seed = 100)
+minhash_corpus <- TextReuseCorpus(files, tokenizer = tokenize_ngrams, n = 5, keep_tokens = TRUE, minhash_func = minhash)
+user20_minhash_corpus <- minhash_corpus[["user20"]]
+cat("For user ID 20, the first five minhashes are:\n")
+print(user20_minhash_corpus$minhashes[1:5])
+
+```
+
+# Problem 2.1 (e)
+```{r}
+buckets <- lsh(minhash_corpus, bands = b)
+candidates <- lsh_candidates(buckets)
+res <- lsh_compare(candidates, minhash_corpus, jaccard_similarity)
+
+```
+
+# Problem 2.1 (e) (i)
+## We do not expect any candidate pairs that have a Jaccard similarity between 0.60 and 0.50 because in 2.1(c)(i) and (ii) part we have already seen using brute force method, that number of candidate pairs with jaccard similarity between 0.5 and 0.6 is zero. Same result was expected out of LSH also.
+```{r}
+cat("Number of pairs with similarity score between 0.60 and 0.50 is", nrow(res[res$score<=0.60 & res$score>=0.50, ]), "\n")
+
+```
+
+# Problem 2.1 (e) (ii)
+```{r}
+pairs_lsh <- res[res$score>=0.40, ]
+print(pairs_lsh)
+
+```
+
+# Problem 2.1 (e) (iii)
+## Yes the pairs and there scores are same as in 2.1(c)(iv)
+```{r}
+
+```
+
+# Problem 2.1 (e) (iv)
+```{r}
+lsh_comparisons <- nrow(res)
+brute_force_comparisons <- nrow(pairwise_candidates_res)
+cat("Work saved = ", ((brute_force_comparisons - lsh_comparisons)/brute_force_comparisons)*100,"%", sep = "")
+
+```
+
+# Problem 2.2
+```{r}
+A_number = 20414691
+user_profile_id = A_number %% 671
+
+# Getting the movieIds watched by the user 187 and initializing the genres list
+movieIds_for_user187 <- ratings[ratings$userId == user_profile_id, 'movieId']
+genres <- c('Action', 'Adventure', 'Animation', 'Children', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror', 'IMAX', 'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western', 'no genres listed')
+
+random_samples_to_choose <- 10
+
+# Creating User profile matrix
+user_profile_matrix <- data.frame(matrix(nrow = length(movieIds_for_user187), ncol = length(genres)))
+rownames(user_profile_matrix) <- movieIds_for_user187
+colnames(user_profile_matrix) <- genres
+
+for (movieId in movieIds_for_user187) {
+  genres_list_of_particular_movie <- as.character(movies[movies$movieId == movieId, 'genres'])
+  genres_split_of_particular_movie <- unlist(strsplit(as.character(genres_list_of_particular_movie), '|', fixed = TRUE))
+  
+  for(genre in genres_split_of_particular_movie) {
+    user_profile_matrix[as.character(movieId), as.character(genre)] = 1
+  }
+}
+
+# Creating the User profile vector from User profile matrix
+user_profile_matrix[is.na(user_profile_matrix)] <- 0
+user_profile_vector <- colMeans(user_profile_matrix)
+
+# Getting the random movieIds
+random_movieIds <- sample(movies[, 'movieId'], size = random_samples_to_choose, replace = FALSE)
+
+# Creating Movie profile matrix
+movie_profile_matrix <- data.frame(matrix(nrow = random_samples_to_choose, ncol = length(genres)))
+rownames(movie_profile_matrix) <- random_movieIds
+colnames(movie_profile_matrix) <- genres
+
+for (movieId in random_movieIds) {
+  genres_list_of_particular_movie <- as.character(movies[movies$movieId == movieId, 'genres'])
+  genres_split_of_particular_movie <- unlist(strsplit(as.character(genres_list_of_particular_movie), '|', fixed = TRUE))
+  
+  for(genre in genres_split_of_particular_movie) {
+    movie_profile_matrix[as.character(movieId), as.character(genre)] = 1
+  }
+}
+
+movie_profile_matrix[is.na(movie_profile_matrix)] <- 0
+
+# Creating the Similarity matrix
+similarity_matrix <- data.frame(matrix(nrow = random_samples_to_choose, ncol = 3))
+colnames(similarity_matrix) <- c('MovieId', 'MovieName', 'CosineSimilarity')
+
+similarity_matrix$MovieId <- random_movieIds
+similarity_matrix$CosineSimilarity <- apply(movie_profile_matrix, 1, function(x) cosine(user_profile_vector, as.numeric(x)))
+similarity_matrix$MovieName <- sapply(random_movieIds, function(x) as.character(movies[movies$movieId == x, 'title']))
+
+# Ordering the Similarity matrix in decreasing order
+similarity_matrix <- similarity_matrix[order(similarity_matrix$CosineSimilarity, decreasing = TRUE), ]
+
+# Printing final required output
+cat('User ID', user_profile_id, 'chose the following 10 movies:', toString(random_movieIds),'\n\n')
+cat('Of these, the following 5 movies are recommended:\n\n')
+print.AsIs(similarity_matrix[1:5, ], row.names = FALSE)
+
+```
+
+# Problem 2.3
+```{r}
+# Getting the movieIds watched by the user 191
+user_profile_id_191 <- 191
+test_movie_ids <- c(150, 296, 380, 590)
+
+# Setting ratings of test movies for user191 to NA
+actual_rating_by_user191 <- ratings[ratings$userId == user_profile_id_191, c('movieId', 'rating')]
+movieIds_for_user191 <- actual_rating_by_user191$movieId
+modified_ratings_of_user191 <- actual_rating_by_user191
+modified_ratings_of_user191[is.element(modified_ratings_of_user191$movieId, test_movie_ids), 'rating'] <- NA
+
+similar_users_to_user191 <- res[res$a == 'user191', ]
+newrow <- c('user191', 'user568', '0.210526300000000')
+
+top12_similar_users_to_user191 <- head(similar_users_to_user191[order(similar_users_to_user191$score, decreasing = TRUE), ], 13)
+top12_similar_users_to_user191 <- top12_similar_users_to_user191[-c(4, 10), ]
+top12_similar_users_to_user191 <- InsertRow(top12_similar_users_to_user191, newrow, 11)
+
+```
+
+# Problem 2.3 (a)
+```{r}
+# Getting the random similar users to user191
+random_users_to_choose <- 5
+
+random_users <- top12_similar_users_to_user191[sample(nrow(top12_similar_users_to_user191), size = random_users_to_choose, replace = FALSE), 'b']
+random_users <- substring(random_users$b, 5)
+
+# Making the empty Utility matrix
+utility_matrix <- data.frame(matrix(nrow = random_users_to_choose+1, ncol = length(movieIds_for_user191)))
+rownames(utility_matrix) <- c(random_users, as.character(user_profile_id_191))
+colnames(utility_matrix) <- movieIds_for_user191
+
+# Filling Utility matrix for random users
+for (userId in random_users) {
+  data_for_particular_user <- ratings[ratings$userId == userId, c('movieId', 'rating')]
+  intersected_movieIds_for_particular_user <- intersect(movieIds_for_user191, data_for_particular_user$movieId)
+  intersected_data_for_particular_user <- data_for_particular_user[is.element(data_for_particular_user$movieId, intersected_movieIds_for_particular_user), ]
+  
+  for (intersected_movieId in intersected_movieIds_for_particular_user) {
+    utility_matrix[userId, as.character(intersected_movieId)] <- intersected_data_for_particular_user[intersected_data_for_particular_user$movieId == intersected_movieId, 'rating']
+  }
+}
+
+# Filling Utility matrix for user191
+utility_matrix[as.character(user_profile_id_191), ] <- modified_ratings_of_user191$rating
+
+# Top 3 users (Neighbourhood = 3) based on Jaccard similarity from the 5 randomly chosen users
+five_random_similar_users_to_user191 <- top12_similar_users_to_user191[is.element(top12_similar_users_to_user191$b, paste('user',random_users, sep = "")), ]
+five_random_similar_users_to_user191 <- five_random_similar_users_to_user191[order(five_random_similar_users_to_user191$score, decreasing = TRUE), ]
+top3_random_similar_uers_to_user191 <- five_random_similar_users_to_user191[1:3, ]
+
+cat("USER ID ", user_profile_id_191, ", 5 random user IDs: ", toString(random_users), '\n\n', sep = "")
+cat("Using user-user similarity, User ID", user_profile_id_191, "will rate the movies as follows:\n\n")
+
+# Predicting ratings of test movies by user191 based on user-user similarity
+error <- 0
+for (test_movie_id in test_movie_ids) {
+  numerator <- 0
+  denominator <- 0
+  
+  for (userId in top3_random_similar_uers_to_user191$b) {
+    
+    substr_userId <- substring(userId, 5)
+    rating <- utility_matrix[as.character(substr_userId), as.character(test_movie_id)]
+    similarity <- as.numeric(top3_random_similar_uers_to_user191[top3_random_similar_uers_to_user191$b == userId, 'score'])
+      
+    if(!is.na(rating)) {
+      numerator <- numerator + (similarity * rating)
+    }
+    denominator <- denominator + similarity
+  }
+  
+  rating_by_user191 <- as.double(numerator/denominator)
+  actual_rating <- as.double(actual_rating_by_user191[actual_rating_by_user191$movieId == test_movie_id, 'rating'])
+  error <- error + ((rating_by_user191 - actual_rating)^2)
+  cat(test_movie_id, ": ", rating_by_user191, '\n', sep = "")
+}
+
+cat("RMSE: ", sqrt(error/length(test_movie_ids)), sep = "")
+
+```
+
+# Problem 2.3 (b)
+```{r}
+# Getting the random similar users
+random_users_2 <- top12_similar_users_to_user191[sample(nrow(top12_similar_users_to_user191), size = random_users_to_choose, replace = FALSE), 'b']
+random_users_2 <- substring(random_users_2$b, 5)
+
+# Making the empty Utility matrix
+utility_matrix_2 <- data.frame(matrix(nrow = length(movieIds_for_user191), ncol = random_users_to_choose+1))
+rownames(utility_matrix_2) <- movieIds_for_user191
+colnames(utility_matrix_2) <- c(random_users_2, as.character(user_profile_id_191))
+
+# Filling Utility matrix for random users
+for (userId in random_users_2) {
+  data_for_particular_user <- ratings[ratings$userId == userId, c('movieId', 'rating')]
+  intersected_movieIds_for_particular_user <- intersect(movieIds_for_user191, data_for_particular_user$movieId)
+  intersected_data_for_particular_user <- data_for_particular_user[is.element(data_for_particular_user$movieId, intersected_movieIds_for_particular_user), ]
+  
+  for (intersected_movieId in intersected_movieIds_for_particular_user) {
+    utility_matrix_2[as.character(intersected_movieId), userId] <- intersected_data_for_particular_user[intersected_data_for_particular_user$movieId == intersected_movieId, 'rating']
+  }
+}
+
+# Filling Utility matrix for user191
+utility_matrix_2[, as.character(user_profile_id_191)] <- modified_ratings_of_user191$rating
+
+cat("USER ID ", user_profile_id_191, ", 5 random user IDs: ", toString(random_users_2), '\n\n', sep = "")
+cat("Using item-item similarity, User ID", user_profile_id_191, "will rate the movies as follows:\n\n")
+
+# Matrix with mean substracted from all rows
+mean_substracted_matrix <- sweep(utility_matrix_2, 1, apply(utility_matrix_2, 1, function(x) mean(x, na.rm = TRUE)))
+mean_substracted_matrix[is.na(mean_substracted_matrix)] <- 0
+
+# Predicting ratings of test movies by user191 based on item-item similarity
+error <- 0
+for (test_movie_id in test_movie_ids) {
+  numerator <- 0
+  denominator <- 0
+  
+  # Row with mean subtracted values for test movie
+  test_row <- as.double(mean_substracted_matrix[as.character(test_movie_id), ])
+  
+  # Finding cosine similarity between test movie and all other movie rows
+  mean_cosine_similarity <- as.data.frame(apply(mean_substracted_matrix, 1, function(x) cosine(test_row, as.double(x))))
+  colnames(mean_cosine_similarity) <- c('CosineSimilarity')
+  mean_cosine_similarity$movieId <- movieIds_for_user191
+  mean_cosine_similarity <- mean_cosine_similarity[order(mean_cosine_similarity$CosineSimilarity, decreasing = TRUE), ]
+  
+  # Selecting top 3 similarities
+  top3_mean_cosine_similarity <- mean_cosine_similarity[2:4, ]
+  
+  # Calculating rating by user191
+  for (movieId in top3_mean_cosine_similarity$movieId) {
+    
+    rating <- utility_matrix_2[as.character(movieId), as.character(user_profile_id_191)]
+    similarity <- top3_mean_cosine_similarity[top3_mean_cosine_similarity$movieId == movieId, 'CosineSimilarity']
+      
+    if(!is.na(rating)) {
+      numerator <- numerator + (similarity * rating)
+    }
+    denominator <- denominator + similarity
+  }
+  
+  rating_by_user191 <- as.double(numerator/denominator)
+  actual_rating <- as.double(actual_rating_by_user191[actual_rating_by_user191$movieId == test_movie_id, 'rating'])
+  error <- error + ((rating_by_user191 - actual_rating)^2)
+  cat(test_movie_id, ": ", rating_by_user191, '\n', sep = "")
+}
+
+cat("RMSE: ", sqrt(error/length(test_movie_ids)), sep = "")
+
+```
